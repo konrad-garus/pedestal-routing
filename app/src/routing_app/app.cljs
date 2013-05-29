@@ -5,11 +5,8 @@
 ; model. Finally, there is a renderer which listens to such changes in the app
 ; model and actually performs a DOM manipulation.
 ;
-; This is a very small example, but it can be easily generalized and extended on
-; all stages. It is possible to do something special before leaving a route. You
-; can plug in any rendering mechanism you like. You can make the configuration
-; generic, like a vector of vectors mapping from location to function, template
-; name, a combination, or whatever you like.
+; This demo shows one generic way to do it - renderer is a reusable HOF 
+; configured with a special structure. See below for details. 
 
 (ns routing-app.app
   (:require [io.pedestal.app :as app]
@@ -45,19 +42,49 @@
                                 (set-route input-queue token)))))
     (.setEnabled true))))
 
-; Renderer reacting to route changes. This one is an ugly hardcoded thing, but
-; it could be a reusable HOF or generic function that takes some kind of 
-; configuration depending on needs.
-(defn route-changed [_ [_ _ old-value new-value] input-queue]
-  ; This bit could be extracted to a generic listener callback
-  (.log js/console "Routing from" old-value "to" new-value)
+; Generic route renderer. cfg is a map with the following options:
+;
+; :routes {"a" function-a "b" function-b} - Call function-a for path a, 
+; function-b for path b.
+; 
+; :listener (fn [old-value new-value] ...) - Whenever route changes, call this
+; function.
+(defn route-renderer [cfg]
+  (fn [_ [_ _ old-value new-value] input-queue]
+    (when-let [listener (:listener cfg)]
+      (listener old-value new-value))
+    (if-let [dispatcher (get-in cfg [:routes new-value])]
+      (dispatcher)
+      (.log js/console "Unknown route:" new-value))))
+
+; Specific renderers for this demo application, nothing interesting or generic here. 
+(defn render-route [msg]
   (let [container (dom/by-id "view-container")]
     (dom/destroy-children! container)
-    (dom/append! container (str "<p>" new-value "</p>"))))
+    (dom/append! container (str "<p>" msg "</p>"))))
 
+(defn route-first []
+  (render-route "This is the first route"))
+
+(defn route-second []
+  (render-route "This is the second route"))
+
+; Some "real", working config.
+(def router-config
+  {:routes {"first" route-first
+            "second" route-second}
+   :default-route "first"
+   :listener (fn [old-value new-value]
+               (.log js/console "Routing from" old-value "to" new-value))})
+
+; The rendering is at least a two-phase process and it needs to be configured in
+; two places - the goog.History listener to push messages to input queue, and 
+; the renderer which updates DOM as those changes occur. 
 (defn ^:export main []
   (let [app (app/build count-app)
-        render-fn (push/renderer "content" [[:value [:route] route-changed]])]
+        ; Plug in renderer here...
+        render-fn (push/renderer "content" [[:value [:route] (route-renderer router-config)]])]
     (render/consume-app-model app render-fn)
-    (configure-router (:input app) "first")
+    ; ... and configure the history listener here
+    (configure-router (:input app) (:default-route router-config))
     (app/begin app)))
