@@ -1,0 +1,17 @@
+body {
+  font-family: sans-serif;
+}
+
+#navigation {
+  width: 150px;
+}
+
+#navigation ul {
+  list-style-type: none;
+}
+
+#view-container {
+  position: absolute;
+  top: 0;
+  left: 150px;
+}
